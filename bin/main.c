@@ -20,23 +20,18 @@ void usage_exit(char* const progname) {
 }
 
 void parse_args(int argc, char* const argv[]) {
-    typedef enum {
-        ARG_FEN = 0,
-        ARG_GAME = 1,
-    } Arg;
-
     static struct option const longopts[] = {
         {
             .name = "fen",
             .has_arg = true,
             .flag = NULL,
-            .val = ARG_FEN,
+            .val = 0,
         },
         {
             .name = "game",
             .has_arg = true,
             .flag = NULL,
-            .val = ARG_GAME,
+            .val = 0,
         },
         {0},
     };
@@ -47,11 +42,11 @@ void parse_args(int argc, char* const argv[]) {
     int opt;
     while ((opt = getopt_long(argc, argv, "f:g:", longopts, NULL)) != -1) {
         switch (opt) {
-            case ARG_FEN:
+            case 'f':
                 strcpy(fen, optarg);
                 break;
 
-            case ARG_GAME:
+            case 'g':
                 if (strlen(optarg) > MAX_GAME_LENGTH) {
                     fprintf(stderr, "error: game name too long");
                     usage_exit(argv[0]);
