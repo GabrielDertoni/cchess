@@ -1,4 +1,4 @@
-#include <stdarg.h>
+#include <getopt.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <string.h>
@@ -9,12 +9,12 @@
 #include <netinet/in.h>
 
 #include "common.h"
+#include "logging.h"
 #include "moves.h"
 #include "fen.h"
 #include "uci.h"
 
 #define MAX_PATH 128
-#define PORT 8080
 
 typedef struct {
     Game game;
@@ -29,10 +29,12 @@ typedef struct {
 static char path[MAX_PATH];
 static FILE* in = NULL;
 static FILE* out = NULL;
+static FILE* sse = NULL;
 static char* line = NULL;
 static size_t linecap = 0;
 static GameUI ui;
 static int server_fd = -1;
+static uint16_t port = 8080;
 
 char const* const light_square = "#f8ce9e";
 char const* const dark_square  = "#d18b47";
@@ -113,7 +115,15 @@ int render_chessboard(FILE* out) {
     // count += res;
 
     res = fprintf(out,
-        "<svg id=\"chessboard\" width=\"%d\" height=\"%d\" viewBox=\"0 0 8 8\" xmlns=\"http://www.w3.org/2000/svg\">\n",
+        "<svg "
+            "id=\"chessboard\" "
+            "hx-sse=\"connect:/events swap:position\""
+            "hx-swap=\"outerHTML\" "
+            "width=\"%d\" "
+            "height=\"%d\" "
+            "viewBox=\"0 0 8 8\" "
+            "xmlns=\"http://www.w3.org/2000/svg\""
+        ">",
         width, height);
     if (res < 0) return res;
     count += res;
@@ -137,7 +147,7 @@ int render_chessboard(FILE* out) {
                     "height=\"1\" "
                     "fill=\"%s\" "
                     "stroke=\"none\""
-                "/>\n",
+                "/>",
                 pos.file, pos.rank, x, y, fill);
             if (res < 0) return res;
             count += res;
@@ -162,7 +172,7 @@ int render_chessboard(FILE* out) {
 
             Square* square = board_index(pos, &game->board);
             if (square->has_piece) {
-                res = fprintf(out, "<g transform=\"translate(%d, %d)\" style=\"pointer-events: none\">\n", x, y);
+                res = fprintf(out, "<g transform=\"translate(%d, %d)\" style=\"pointer-events: none\">", x, y);
                 if (res < 0) return res;
                 count += res;
 
@@ -170,7 +180,7 @@ int render_chessboard(FILE* out) {
                 if (res < 0) return res;
                 count += res;
 
-                res = fprintf(out, "</g>\n");
+                res = fprintf(out, "</g>");
                 if (res < 0) return res;
                 count += res;
             }
@@ -182,24 +192,41 @@ int render_chessboard(FILE* out) {
             Position dest = ui.moves[i].destination;
             int x = dest.file - 'a';
             int y = dest.rank - '1';
-            res = fprintf(out,
-                "<circle "
-                    "cx=\"%d.5\" "
-                    "cy=\"%d.5\" "
-                    "r=\"0.2\" "
-                    "fill=\"#000000\" "
-                    "fill-opacity=\"0.1\" "
-                    "stroke=\"none\""
-                    "style=\"pointer-events: none\""
-                "/>",
-                x, y
-            );
+            Square* square = board_index(dest, &ui.game.board);
+            if (square->has_piece) {
+                res = fprintf(out,
+                    "<rect "
+                        "x=\"%d\" "
+                        "y=\"%d\" "
+                        "width=\"1\" "
+                        "height=\"1\" "
+                        "fill=\"#ff0000\" "
+                        "fill-opacity=\"0.5\" "
+                        "stroke=\"none\""
+                        "style=\"pointer-events: none\""
+                    "/>",
+                    x, y
+                );
+            } else {
+                res = fprintf(out,
+                    "<circle "
+                        "cx=\"%d.5\" "
+                        "cy=\"%d.5\" "
+                        "r=\"0.2\" "
+                        "fill=\"#000000\" "
+                        "fill-opacity=\"0.1\" "
+                        "stroke=\"none\""
+                        "style=\"pointer-events: none\""
+                    "/>",
+                    x, y
+                );
+            }
             if (res < 0) return res;
             count += res;
         }
     }
 
-    res = fprintf(out, "</svg>\n");
+    res = fprintf(out, "</svg>");
     if (res < 0) return res;
     count += res;
 
@@ -211,13 +238,13 @@ int render_html(FILE* out) {
     int count = 0;
     int res;
 
-    res = fprintf(out, "<!DOCTYPE html>\n"
-                       "<html>\n"
-                       "<head>\n"
-                       "    <title>chess</title>\n"
-                       "    <script src=\"https://unpkg.com/htmx.org@1.9.2\" integrity=\"sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h\" crossorigin=\"anonymous\"></script>\n"
-                       "</head>\n"
-                       "<body>\n");
+    res = fprintf(out, "<!DOCTYPE html>"
+                       "<html>"
+                       "<head>"
+                       "<title>chess</title>"
+                       "<script src=\"https://unpkg.com/htmx.org@1.9.2\" integrity=\"sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h\" crossorigin=\"anonymous\"></script>"
+                       "</head>"
+                       "<body>");
     if (res < 0) return res;
     count += res;
 
@@ -225,7 +252,7 @@ int render_html(FILE* out) {
     if (res < 0) return res;
     count += res;
 
-    res = fprintf(out, "</body>\n</html>\n");
+    res = fprintf(out, "</body></html>");
     if (res < 0) return res;
     count += res;
 
@@ -292,15 +319,6 @@ static const char* HTTP_METHOD_NAME[] = {
     METHOD(PATCH),
 };
 
-void eout(const char* fmt, ...) {
-    va_list argp;
-    va_start(argp, fmt);
-    fprintf(stderr, "[error] ");
-    vfprintf(stderr, fmt, argp);
-    fprintf(stderr, "\n");
-    va_end(argp);
-}
-
 void write_response(FILE* conn, HttpResponse* response, size_t content_length) {
     fprintf(conn, "%s %d %s\r\n", response->proto, response->status, response->status_msg);
     for (HttpHeader* header = response->headers; header->key; header++) {
@@ -314,11 +332,22 @@ void write_response(FILE* conn, HttpResponse* response, size_t content_length) {
 }
 
 void bad_request(FILE* conn) {
-    HttpResponse response;
-    strcpy(response.proto, "HTTP/1.0");
-    response.status = 400;
-    strcpy(response.status_msg, "Bad Request");
-    memset(response.headers, 0, sizeof(response.headers));
+    HttpResponse response = {
+        .proto = "HTTP/1.0",
+        .status = 40,
+        .status_msg = "Bad Request",
+        .headers = { { 0 } },
+    };
+    write_response(conn, &response, 0);
+}
+
+void not_found(FILE* conn) {
+    HttpResponse response = {
+        .proto = "HTTP/1.0",
+        .status = 404,
+        .status_msg = "Not Found",
+        .headers = { { 0 } },
+    };
     write_response(conn, &response, 0);
 }
 
@@ -350,28 +379,28 @@ HttpRequest* read_request(FILE* conn) {
     HttpMethod method;
     for (method = 0; method < HTTP_COUNT && strcmp(HTTP_METHOD_NAME[method], method_str) != 0; method++);
     if (method == HTTP_COUNT) {
-        eout("invalid http method");
+        log_error("invalid http method");
         goto fail;
     }
     request->method = method;
 
     if (!parse) {
-        eout("no path");
+        log_error("no path");
         goto fail;
     }
     char* path = strsep(&parse, " ");
     if (strlen(path) >= HTTP_MAX_REQUEST_PATH) {
-        eout("path too long");
+        log_error("path too long");
         goto fail;
     }
     strcpy(request->path, path);
     if (!parse) {
-        eout("no protocol");
+        log_error("no protocol");
         goto fail;
     }
     char* version = strdup(strsep(&parse, " "));
     if (strlen(version) >= HTTP_MAX_PROTO) {
-        eout("protocol version too long");
+        log_error("protocol version too long");
         goto fail;
     }
     strcpy(request->proto, version);
@@ -379,11 +408,11 @@ HttpRequest* read_request(FILE* conn) {
     char* version_number = version;
 
     if (!version_protocol || strcmp(version_protocol, "HTTP") != 0) {
-        eout("expected protocol to be 'HTTP', got '%s' instead", version_protocol);
+        log_error("expected protocol to be 'HTTP', got '%s' instead", version_protocol);
         goto fail;
     }
     if (!version_number) {
-        eout("no version number");
+        log_error("no version number");
         goto fail;
     }
 
@@ -393,13 +422,13 @@ HttpRequest* read_request(FILE* conn) {
         parse = line;
         request->headers[i].key = strdup(strsep(&parse, ":"));
         if (!parse) {
-            eout("no value in request header");
+            log_error("no value in request header");
             goto fail;
         }
         request->headers[i].value = strdup(strsep(&parse, "\r\n"));
     }
     if (line[0] != '\r' && line[0] != '\n') {
-        eout("header limit exceeded");
+        log_error("header limit exceeded");
         goto fail;
     }
 
@@ -408,7 +437,7 @@ HttpRequest* read_request(FILE* conn) {
         char* endp;
         long len = strtol(content_length->value, &endp, 10);
         if (content_length->value == endp) {
-            eout("invalid 'Content-Length' header");
+            log_error("invalid 'Content-Length' header");
             goto fail;
         }
         request = realloc(request, sizeof(HttpRequest) + len);
@@ -437,6 +466,7 @@ char* get_date() {
 }
 
 void handle_request(FILE* conn) {
+    bool should_close = true;
     errno = 0;
     HttpRequest* request = read_request(conn);
     if (!request) {
@@ -454,12 +484,12 @@ void handle_request(FILE* conn) {
     char* command = strsep(&parse, "?");
     char* date = get_date();
     if (!date) {
-        eout("failed to get date");
+        log_error("failed to get date");
         goto teardown;
     }
 
     if (request->method != HTTP_GET) {
-        eout("unexpected http method %s", HTTP_METHOD_NAME[request->method]);
+        log_error("unexpected http method %s", HTTP_METHOD_NAME[request->method]);
         goto teardown;
     }
 
@@ -468,13 +498,13 @@ void handle_request(FILE* conn) {
     if (strcmp(command, "/click") == 0) {
         char* square_str = strsep(&parse, "=");
         if (!square_str || strcmp(square_str, "square") != 0) {
-            eout("expected 'square' as first query param, got '%s'", square_str);
+            log_error("expected 'square' as first query param, got '%s'", square_str);
             bad_request(conn);
             goto teardown;
         }
         Position pos;
         if (parse_position(parse, &pos) != RESULT_OK) {
-            eout("invalid selected square '%.2s'", (char*)&pos);
+            log_error("invalid selected square '%.2s'", (char*)&pos);
             bad_request(conn);
             goto teardown;
         }
@@ -529,33 +559,84 @@ void handle_request(FILE* conn) {
         write_response(conn, &response, 0);
         render_html(conn);
         fflush(conn);
+    } else if (strcmp(command, "/events") == 0) {
+        HttpResponse response = {
+            .proto = "HTTP/1.0",
+            .status = 200,
+            .status_msg = "OK",
+            .headers = {
+                { .key = "Date", .value = date },
+                { .key = "Cache-Control", .value = "no-store" },
+                { .key = "Content-Type", .value = "text/event-stream" },
+                { .key = "Connection", .value = "Keep-Alive" },
+                { 0 },
+            },
+        };
+        write_response(conn, &response, 0);
+        should_close = false;
+        if (sse) fclose(sse);
+        sse = conn;
+        log_info("sse connected");
+    } else {
+        not_found(conn);
     }
 
 teardown:
     if (date) free(date);
     if (request) request_deinit(request);
+    if (should_close) fclose(conn);
 }
 
 void usage_exit(const char* progname) {
-    fprintf(stderr, "Usage: %s COLOR PATH\n", progname);
+    fprintf(stderr, "Usage: %s [-p port] COLOR PATH\n", progname);
     exit(EXIT_FAILURE);
 }
 
 void parse_args(int argc, char* const argv[]) {
-    if (argc < 3) usage_exit(argv[0]);
-    if (strcmp(argv[1], "white") == 0) {
+    static struct option const longopts[] = {
+        {
+            .name = "port",
+            .has_arg = true,
+            .flag = NULL,
+            .val = 0,
+        },
+        {0},
+    };
+
+    int opt;
+    while ((opt = getopt_long(argc, argv, "p:", longopts, NULL)) != -1) {
+        switch (opt) {
+            case 'p': {
+                char* endp;
+                port = strtol(optarg, &endp, 10);
+                if (optarg == endp) {
+                    log_error("invalid port");
+                    usage_exit(argv[0]);
+                }
+                break;
+            }
+
+            default: /* '?' */
+                printf("opt: %c\n", opt);
+                usage_exit(argv[0]);
+        }
+    }
+    if (argc - optind < 2) usage_exit(argv[0]);
+    char* color_str = argv[optind++];
+    if (strcmp(color_str, "white") == 0) {
         ui.color = COLOR_WHITE;
-    } else if (strcmp(argv[1], "black") == 0) {
+    } else if (strcmp(color_str, "black") == 0) {
         ui.color = COLOR_BLACK;
     } else {
-        eout("COLOR argument must be either 'black' or 'white'");
+        log_error("COLOR argument must be either 'black' or 'white'");
         usage_exit(argv[0]);
     }
-    if (strlen(argv[2]) >= MAX_PATH) {
-        eout("maximum path name length exceeded");
+    // Must leave extra space for the strcat
+    if (strlen(argv[optind]) + 16 >= MAX_PATH) {
+        log_error("maximum path name length exceeded");
         usage_exit(argv[0]);
     }
-    strcpy(path, argv[2]);
+    sprintf(path, "%s/%s", argv[optind], color_str);
 }
 
 void uci_handshake() {
@@ -567,7 +648,7 @@ void uci_handshake() {
     parse = line;
     uci_cmd = strsep(&parse, "\r\n");
     if (strcmp(uci_cmd, "uci") != 0) {
-        eout("expected 'uci' command");
+        log_error("expected 'uci' command");
         exit(EXIT_FAILURE);
     }
     fprintf(out, "uciok\n");
@@ -576,7 +657,7 @@ void uci_handshake() {
     parse = line;
     uci_cmd = strsep(&parse, "\r\n");
     if (strcmp(uci_cmd, "isready") != 0) {
-        eout("expected 'isready' command");
+        log_error("expected 'isready' command");
         exit(EXIT_FAILURE);
     }
     fprintf(out, "readyok\n");
@@ -606,13 +687,13 @@ void init() {
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     ASSERT_LIBC(bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) != -1, "bind");
     ASSERT_LIBC(listen(server_fd, 1) != -1, "listen");
 
-    fprintf(stderr, "[info] listening on port %d\n", PORT);
+    log_info("listening on port %d", port);
 }
 
 int main(int argc, char* const argv[]) {
@@ -643,22 +724,29 @@ int main(int argc, char* const argv[]) {
             setlinebuf(peer_fp);
 
             handle_request(peer_fp);
-            fclose(peer_fp);
         }
         if (FD_ISSET(fileno(in), &readfs)) {
             ASSERT_LIBC(getline(&line, &linecap, in) != EOF, "getline");
+            log_debug("UCI: %s", line);
             UciCommand cmd;
             Result res = uci_parse_command(line, &cmd);
             if (res != RESULT_OK) {
-                eout("invalid UCI command '%s'\n", line);
-                eout("%s", get_error_msg(res));
-            }
-            if (cmd.kind == UCI_POSITION) {
-                ui.game = cmd.position;
-            } else if (cmd.kind == UCI_GO) {
-                ui.waiting_move = true;
-            } else if (cmd.kind == UCI_STOP) {
-                ui.waiting_move = false;
+                log_error("invalid UCI command\n");
+                log_error("%s", get_error_msg(res));
+            } else {
+                if (cmd.kind == UCI_POSITION) {
+                    ui.game = cmd.position;
+                    if (sse) {
+                        fprintf(sse, "event: position\n");
+                        fprintf(sse, "data: ");
+                        render_chessboard(sse);
+                        fprintf(sse, "\n\n");
+                    }
+                } else if (cmd.kind == UCI_GO) {
+                    ui.waiting_move = true;
+                } else if (cmd.kind == UCI_STOP) {
+                    ui.waiting_move = false;
+                }
             }
         }
     }
