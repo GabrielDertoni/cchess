@@ -60,7 +60,7 @@ Result uci_parse_command(char* linebuf, UciCommand* out) {
             if (strcmp(s, "startpos") == 0) {
                 return parse_fen(&out->position, FEN_STARTING);
             } else if (strcmp(s, "fen") == 0) {
-                s = strsep(&linebuf, delim);
+                s = strsep(&linebuf, "\r\n");
                 if (!s) return ERROR(INVALID_UCI);
                 return parse_fen(&out->position, s);
             }
