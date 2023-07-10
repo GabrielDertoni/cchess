@@ -91,7 +91,7 @@ void game_fen(Game* game, char* out) {
     out += sprintf(out, "%d ", game->halfmove_clock);
 
     // Fullmove counter
-    out += sprintf(out, "%d ", game->fullmove_counter);
+    out += sprintf(out, "%d", game->fullmove_counter);
 
     *out = '\0';
 }
@@ -127,7 +127,7 @@ Result parse_fen(Game* this, const char* fen) {
     if (*fen != '-') {
         while (*fen != ' ') {
             Piece piece;
-            ASSERT_OK(piece_from_letter(*(fen++), &piece));
+            ASSERT_OK(piece_from_letter(*fen++, &piece));
             this->has_king_moved[piece.color] = false;
             if (piece.kind == PIECE_KING)
                 this->has_rook_moved[piece.color].kings = true;
@@ -143,7 +143,7 @@ Result parse_fen(Game* this, const char* fen) {
 
     if (*fen != '-') {
         this->double_pushed.has = true;
-        this->double_pushed.en_passant = MK_POSITION(fen);
+        ASSERT_OK(parse_position(fen, &this->double_pushed.en_passant));
         fen += 2;
     } else {
         fen++;
