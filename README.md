@@ -1,18 +1,31 @@
-# Binary Exploitation
+# C Chess
 
-This program was written lacking some checks on purpose, in order to allow binary exploitation.
+Minimal chess machmaking server, with support for UI intergration.
 
-## Dependencies and Compiling
+## Dependencies
+
+- C compiler, such as `gcc` or `clang`
+- POSIX compliant operating system (Linux, MacOS, etc.)
+
+## Building
 
 ```
-pip3 install pwn
-sudo chmod +x build.sh
-./build.sh
+make
+mkdir games
 ```
 
 ## Running
 
+### The machmaking server
+
 ```bash
-sudo chmod +x exploit
-./exploit.py
+./build/engine_chess games
 ```
+
+### The ui server
+
+```bash
+./build/ui <color> games/<game_id>/<color>
+```
+
+Then you can open the browser at `http://localhost:8080` and play a game on the board.
