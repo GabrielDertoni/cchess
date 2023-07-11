@@ -107,7 +107,7 @@ const char* get_error_msg(Result res);
         if (__r != RESULT_OK) \
             return __r;       \
     } while(0)
-#define ASSERT_OR(expr, err) if (!(expr)) return ERROR(err);
+#define ASSERT_OR(expr, err) if (!(expr)) return RESULT_ERR_##err;
 #define STRUCT_EQ(ty, lhs, rhs) (memcmp(lhs, rhs, sizeof(ty)) == 0)
 
 extern const char kings_rank[];
