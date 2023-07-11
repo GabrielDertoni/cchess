@@ -46,6 +46,7 @@ typedef struct {
     Square squares[8][8];
 } Board;
 
+#define INVALID_POSITION MK_POSITION("iv")
 typedef struct {
     char file;
     char rank;

@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "logging.h"
 #include "game_server.h"
 #include "common.h"
 #include "uci.h"
@@ -45,18 +46,14 @@ Result player_uci_read(Player* player, UciCommand* cmd) {
 }
 
 Result player_uci_read_until_kind(Player* player, UciCommandKind kind, UciCommand* out) {
-    // fprintf(stderr, "[info]: waiting %s\n", uci_command_kind_to_string[kind]);
+    log_debug("waiting %s", uci_command_kind_to_string[kind]);
     while (1) {
         UciCommand cmd;
         Result res = player_uci_read(player, &cmd);
         if (res != RESULT_OK) {
             if (feof(player->in)) return RESULT_ERR_EOF;
-            fprintf(
-                stderr,
-                "[error]: invalid UCI command, expecting '%s'\n",
-                uci_command_kind_to_string[kind]
-            );
-            fprintf(stderr, "         * %s\n", get_error_msg(res));
+            log_error("invalid UCI command, expecting '%s'", uci_command_kind_to_string[kind]);
+            log_error("%s", get_error_msg(res));
             continue;
         }
         if (cmd.kind == kind) {
@@ -66,14 +63,18 @@ Result player_uci_read_until_kind(Player* player, UciCommandKind kind, UciComman
     }
 }
 
+Result player_uci_handshake(Player* player) {
+    ASSERT_OR(fprintf(player->out, "uci\n") >= 0, LIBC);
+    ASSERT_OK(player_uci_read_until_kind(player, UCI_OK, NULL));
+    ASSERT_OR(fprintf(player->out, "isready\n") >= 0, LIBC);
+    ASSERT_OK(player_uci_read_until_kind(player, UCI_READYOK, NULL));
+    return RESULT_OK;
+}
+
 Result game_server_setup_uci(GameServer* server) {
     for (int i = 0; i < 2; i++) {
-        fprintf(stderr, "waiting for player %d to connect\n", i);
-        Player* player = &server->players[i];
-        ASSERT_OR(fprintf(player->out, "uci\n") >= 0, LIBC);
-        ASSERT_OK(player_uci_read_until_kind(player, UCI_OK, NULL));
-        ASSERT_OR(fprintf(player->out, "isready\n") >= 0, LIBC);
-        ASSERT_OK(player_uci_read_until_kind(player, UCI_READYOK, NULL));
+        log_info("waiting for player %d to connect", i);
+        player_uci_handshake(&server->players[i]);
     }
     return RESULT_OK;
 }
@@ -87,7 +88,7 @@ Result game_server_update(GameServer* server) {
     int count = all_valid_moves(game, possible_moves);
     if (count == 0) {
         server->is_done = true;
-        fprintf(stderr, "[info] %s wins\n", opposite(game->turn) == COLOR_WHITE ? "white" : "black");
+        log_info("%s wins", opposite(game->turn) == COLOR_WHITE ? "white" : "black");
         return RESULT_OK;
     }
 
@@ -106,7 +107,7 @@ Result game_server_update(GameServer* server) {
     ASSERT_OK(player_uci_read_until_kind(player, UCI_BESTMOVE, &cmd));
     Move move = cmd.bestmove.move;
     if (!check_move(move, &server->game, possible_moves, count)) {
-        fprintf(stderr, "[error] invalid move %.5s\n", (char*)&move);
+        log_error("invalid move %.5s", (char*)&move);
         return RESULT_OK;
     }
     int history_slot = server->game.fullmove_counter % HISTORY_MAX;

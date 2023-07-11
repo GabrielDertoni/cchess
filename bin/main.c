@@ -1,7 +1,9 @@
 #include <string.h>
 #include <getopt.h>
+#include <unistd.h>
 
 #include "common.h"
+#include "logging.h"
 #include "game_server.h"
 #include "fen.h"
 
@@ -83,14 +85,31 @@ int main(int argc, char* const argv[]) {
     GameServer server;
     Result res = game_server_init_from_fen(&server, FEN_STARTING);
     if (res != RESULT_OK) {
-        fprintf(stderr, "[error]: failed to initialize the game server\n");
-        fprintf(stderr, "         * %s\n", get_error_msg(res));
+        log_error("failed to initialize the game server");
+        log_error("%s", get_error_msg(res));
         return EXIT_FAILURE;
     }
 
-    FILE* fp;
+    char sbuf[2 * sizeof(dir) + 64];
+    if (access(dir, F_OK) != 0) {
+        sprintf(sbuf, "mkdir -p %s/white %s/black", dir, dir);
+        if (system(sbuf) != 0) {
+            log_error("failed to create directories with command '%s'", sbuf);
+            return EXIT_FAILURE;
+        }
+        sprintf(sbuf, "mkfifo %s/white/in %s/white/out", dir, dir);
+        if (system(sbuf) != 0) {
+            log_error("failed to create fifos with command '%s'", sbuf);
+            return EXIT_FAILURE;
+        }
+        sprintf(sbuf, "mkfifo %s/black/in %s/black/out", dir, dir);
+        if (system(sbuf) != 0) {
+            log_error("failed to create fifos with command '%s'", sbuf);
+            return EXIT_FAILURE;
+        }
+    }
 
-    char sbuf[sizeof(dir) + 64];
+    FILE* fp;
 
     sprintf(sbuf, "%s/white/in", dir);
     fp = fopen(sbuf, "r+");
@@ -133,10 +152,10 @@ int main(int argc, char* const argv[]) {
         res = game_server_update(&server);
     } while (res == RESULT_OK && !server.is_done);
     if (res != RESULT_OK) {
-        fprintf(stderr, "[error] %s\n", get_error_msg(res));
+        log_error("%s", get_error_msg(res));
     }
 
-    fprintf(stderr, "[info] game finished\n");
+    log_info("game finished");
 
     game_server_deinit(&server);
 

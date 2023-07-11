@@ -1,4 +1,5 @@
 #include <getopt.h>
+#include <signal.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <string.h>
@@ -102,52 +103,27 @@ int piece_svg(FILE* out, Piece piece) {
     return fwrite(svg.content, sizeof(unsigned char), *svg.len, out);
 }
 
-int render_chessboard(FILE* out) {
+int render_chessboard_inner(FILE* out) {
     Game* game = &ui.game;
-    int width = 400;
-    int height = 400;
-
     int count = 0;
     int res;
-
-    // res = fprintf(out, "<?xml version=\"1.0\" standalone=\"no\"?>\n");
-    // if (res < 0) return res;
-    // count += res;
-
-    res = fprintf(out,
-        "<svg "
-            "id=\"chessboard\" "
-            "hx-sse=\"connect:/events swap:position\""
-            "hx-swap=\"outerHTML\" "
-            "width=\"%d\" "
-            "height=\"%d\" "
-            "viewBox=\"0 0 8 8\" "
-            "xmlns=\"http://www.w3.org/2000/svg\""
-        ">",
-        width, height);
-    if (res < 0) return res;
-    count += res;
-
     Position pos;
+
     for (pos.rank = '1'; pos.rank <= '8'; pos.rank++) {
         for (pos.file = 'a'; pos.file <= 'h'; pos.file++) {
             int x = pos.file - 'a';
-            int y = pos.rank - '1';
+            int y = ui.color == COLOR_BLACK ? pos.rank - '1' : '8' - pos.rank;
             const char* fill = (x + y % 2) % 2 == 0 ? light_square : dark_square;
             res = fprintf(out,
                 "<rect "
-                    "hx-get=\"/click\" "
-                    "hx-vals='{\"square\": \"%c%c\"}' "
-                    "hx-trigger=\"click\" "
-                    "hx-target=\"#chessboard\" "
-                    "hx-swap=\"outerHTML\" "
+                    "onclick=\"click_square('%c%c')\" "
                     "x=\"%d\" "
                     "y=\"%d\" "
                     "width=\"1\" "
                     "height=\"1\" "
                     "fill=\"%s\" "
                     "stroke=\"none\""
-                "/>",
+                "></rect>",
                 pos.file, pos.rank, x, y, fill);
             if (res < 0) return res;
             count += res;
@@ -163,7 +139,7 @@ int render_chessboard(FILE* out) {
                         "fill=\"%s\" "
                         "fill-opacity=\"0.5\" "
                         "stroke=\"none\""
-                    "/>",
+                    "></rect>",
                     x, y, highlight
                 );
                 if (res < 0) return res;
@@ -191,7 +167,7 @@ int render_chessboard(FILE* out) {
         for (int i = 0; i < ui.n_moves; i++) {
             Position dest = ui.moves[i].destination;
             int x = dest.file - 'a';
-            int y = dest.rank - '1';
+            int y = ui.color == COLOR_BLACK ? dest.rank - '1' : '8' - dest.rank;
             Square* square = board_index(dest, &ui.game.board);
             if (square->has_piece) {
                 res = fprintf(out,
@@ -204,7 +180,7 @@ int render_chessboard(FILE* out) {
                         "fill-opacity=\"0.5\" "
                         "stroke=\"none\""
                         "style=\"pointer-events: none\""
-                    "/>",
+                    "></rect>",
                     x, y
                 );
             } else {
@@ -217,14 +193,43 @@ int render_chessboard(FILE* out) {
                         "fill-opacity=\"0.1\" "
                         "stroke=\"none\""
                         "style=\"pointer-events: none\""
-                    "/>",
+                    "></circle>",
                     x, y
                 );
             }
             if (res < 0) return res;
             count += res;
         }
-    }
+    }   
+
+    return count;
+}
+
+int render_chessboard(FILE* out) {
+    Game* game = &ui.game;
+    int width = 400;
+    int height = 400;
+
+    int count = 0;
+    int res;
+
+    // res = fprintf(out, "<?xml version=\"1.0\" standalone=\"no\"?>\n");
+    // if (res < 0) return res;
+    // count += res;
+
+    res = fprintf(out,
+        "<svg "
+            "id=\"chessboard\" "
+            "width=\"%d\" "
+            "height=\"%d\" "
+            "viewBox=\"0 0 8 8\" "
+            "xmlns=\"http://www.w3.org/2000/svg\""
+        ">",
+        width, height);
+    if (res < 0) return res;
+    count += res;
+
+    render_chessboard_inner(out);
 
     res = fprintf(out, "</svg>");
     if (res < 0) return res;
@@ -238,13 +243,30 @@ int render_html(FILE* out) {
     int count = 0;
     int res;
 
+    static const char* script = 
+    "    var chessboard;                                                                                     \n"
+    "    window.addEventListener('DOMContentLoaded', () => {                                                 \n"
+    "        chessboard = document.getElementById('chessboard');                                             \n"
+    "    })                                                                                                  \n"
+
+    "    const evtSource = new EventSource('/events');                                                       \n"
+    "    evtSource.addEventListener('position', event => {                                                   \n"
+    "       chessboard.innerHTML = event.data;                                                               \n"
+    "    });                                                                                                 \n"
+
+    "    async function click_square(square) {                                                               \n"
+    "        const response = await fetch(`/click?square=${square}`);                                        \n"
+    "        const new_board = await response.text();                                                        \n"
+    "        chessboard.innerHTML = new_board;                                                               \n"
+    "    }                                                                                                   \n";
+
     res = fprintf(out, "<!DOCTYPE html>"
                        "<html>"
                        "<head>"
                        "<title>chess</title>"
-                       "<script src=\"https://unpkg.com/htmx.org@1.9.2\" integrity=\"sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h\" crossorigin=\"anonymous\"></script>"
+                       "<script>%s</script>"
                        "</head>"
-                       "<body>");
+                       "<body>", script);
     if (res < 0) return res;
     count += res;
 
@@ -334,7 +356,7 @@ void write_response(FILE* conn, HttpResponse* response, size_t content_length) {
 void bad_request(FILE* conn) {
     HttpResponse response = {
         .proto = "HTTP/1.0",
-        .status = 40,
+        .status = 400,
         .status_msg = "Bad Request",
         .headers = { { 0 } },
     };
@@ -448,6 +470,7 @@ HttpRequest* read_request(FILE* conn) {
     return request;
 fail:
     if (request) request_deinit(request);
+    log_error("failed to read request");
     return NULL;
 }
 
@@ -468,6 +491,7 @@ char* get_date() {
 void handle_request(FILE* conn) {
     bool should_close = true;
     errno = 0;
+    char* date = NULL;
     HttpRequest* request = read_request(conn);
     if (!request) {
         if (errno != 0)
@@ -482,7 +506,7 @@ void handle_request(FILE* conn) {
 
     char* parse = path;
     char* command = strsep(&parse, "?");
-    char* date = get_date();
+    date = get_date();
     if (!date) {
         log_error("failed to get date");
         goto teardown;
@@ -493,7 +517,7 @@ void handle_request(FILE* conn) {
         goto teardown;
     }
 
-    fprintf(stderr, "GET %s\n", command);
+    log_info("GET %s", command);
 
     if (strcmp(command, "/click") == 0) {
         char* square_str = strsep(&parse, "=");
@@ -544,7 +568,7 @@ void handle_request(FILE* conn) {
             },
         };
         write_response(conn, &response, 0);
-        render_chessboard(conn);
+        render_chessboard_inner(conn);
     } else if (strcmp(command, "/") == 0) {
         HttpResponse response = {
             .proto = "HTTP/1.0",
@@ -699,6 +723,7 @@ void init() {
 int main(int argc, char* const argv[]) {
     parse_args(argc, argv);
     init();
+    signal(SIGPIPE, SIG_IGN);
 
     struct sockaddr_in peer_addr;
     socklen_t peer_addr_size = sizeof(peer_addr);
@@ -739,13 +764,17 @@ int main(int argc, char* const argv[]) {
                     if (sse) {
                         fprintf(sse, "event: position\n");
                         fprintf(sse, "data: ");
-                        render_chessboard(sse);
+                        render_chessboard_inner(sse);
                         fprintf(sse, "\n\n");
                     }
                 } else if (cmd.kind == UCI_GO) {
                     ui.waiting_move = true;
                 } else if (cmd.kind == UCI_STOP) {
                     ui.waiting_move = false;
+                } else if (cmd.kind == UCI_INIT) {
+                    fprintf(out, "uciok\n");
+                } else if (cmd.kind == UCI_ISREADY) {
+                    fprintf(out, "readyok\n");
                 }
             }
         }

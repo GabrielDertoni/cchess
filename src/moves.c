@@ -409,6 +409,7 @@ int king_moves(Position king, PieceColor color, Game* game, Move moves[]) {
             if (square && (!square->has_piece || square->piece.color != color)) {
                 move->origin = king;
                 move->destination = dest;
+                move++;
             }
         }
     }
@@ -481,7 +482,7 @@ int remove_invalid_moves(Piece piece, Game* game, Move moves[], int nmoves) {
     Position enemy_pieces[16];
     Position* enemy_piece_top = enemy_pieces;
 
-    Position ally_king;
+    Position ally_king = INVALID_POSITION;
     Position pos;
     for (pos.rank = '1'; pos.rank <= '8'; pos.rank++) {
         for (pos.file = 'a'; pos.file <= 'h'; pos.file++) {
@@ -496,6 +497,7 @@ int remove_invalid_moves(Piece piece, Game* game, Move moves[], int nmoves) {
         }
     }
 
+    assert(!STRUCT_EQ(Position, &ally_king, &INVALID_POSITION));
 
     for (int i = nmoves-1; i >= 0; i--) {
         Move move = moves[i];

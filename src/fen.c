@@ -33,6 +33,16 @@
 
 const char* FEN_STARTING = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+void game_default_init(Game* this) {
+    this->double_pushed.has = false;
+    this->has_king_moved[COLOR_WHITE] = true;
+    this->has_king_moved[COLOR_BLACK] = true;
+    this->has_rook_moved[COLOR_WHITE].kings = true;
+    this->has_rook_moved[COLOR_WHITE].queens = true;
+    this->has_rook_moved[COLOR_BLACK].kings = true;
+    this->has_rook_moved[COLOR_BLACK].queens = true;
+}
+
 void game_fen(Game* game, char* out) {
     // Piece placement
     Position pos;
@@ -98,6 +108,7 @@ void game_fen(Game* game, char* out) {
 
 Result parse_fen(Game* this, const char* fen) {
     if (!fen) fen = FEN_STARTING;
+    game_default_init(this);
 
     Position pos;
     for (pos.rank = '8'; pos.rank >= '1'; pos.rank--) {
