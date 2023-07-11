@@ -5,6 +5,7 @@ Minimal chess machmaking server, with support for UI intergration.
 ## Dependencies
 
 - C compiler, such as `gcc` or `clang`
+- `xxd` command line tool
 - POSIX compliant operating system (Linux, MacOS, etc.)
 
 ## Building
